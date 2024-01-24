@@ -1,0 +1,12 @@
+#!/usr/bin/env python3.11
+# Released under the MIT License. See LICENSE for details.
+#
+"""Command line wrapper for the spinoff system."""
+
+from __future__ import annotations
+
+
+if __name__ == '__main__':
+    from batools.spinoff import spinoff_main
+
+    spinoff_main()

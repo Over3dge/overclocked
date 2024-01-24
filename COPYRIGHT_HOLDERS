@@ -1,0 +1,81 @@
+This file contains a list of Copyright holders for the ALL RIGHTS RESERVED files
+in the project
+
+CKSQ:
+  Holds Copyright in:
+    src/assets/ba_data/audio/brokenMusic.ogg
+
+  Ways to contact:
+    cksq on Discord
+
+Doffy:
+  Holds Copyright in:
+    src/assets/ba_data/python/bascenev1lib/game/quake.py
+
+  Ways to contact:
+    doffy78 on Discord
+
+  Notes:
+    The original author of the Quake mod is unknown, beware.
+
+Era0S:
+  Holds Copyright in:
+    "mroForeArm", "mroHand", "mroHead", "mroLowerLeg", "mroPelvis", "mroToes",
+    "mroTorso", "mroUpperArm", and "mroUpperLeg" .bob files found in
+    src/assets/ba_data/meshes and "mroColor", "mroColorMask, and
+    "wonderBombColor" .dds, .ktx, and .png files found in
+    src/assets/ba_data/textures
+
+  Ways to contact:
+    3ra0 on Discord
+    @era:4d2.org on Matrix
+
+Freakyy:
+  Holds Copyright in:
+    "armsrace", "frozenone", "icyemits", "musicalflags", and "volleyball" .py
+    files found in src/assets/ba_data/python/bascenev1lib/game
+
+  Ways to contact:
+    freakyyyy on Discord
+
+  Notes:
+    You can visit https://github.com/bombsquad-community/plugin-manager to
+    obtain copies of the files mentioned above.
+
+Froshlee14:
+  Holds Copyright in:
+    src/assets/ba_data/python/bascenev1lib/game/runningbombs.py
+
+  Ways to contact:
+    froshlee24 on Discord
+
+Komasio71:
+  Holds Copyright in:
+    "201XMusic", "dontSmokeMyWeedMusic", "eveningBumpMusic",
+    "nightTimeChillMusic", and "overtimeMusic" .ogg files found in
+    src/assets/ba_data/audio
+
+  Ways to contact:
+    ko71 on Discord
+
+MattZ45986:
+  Holds Copyright in:
+    src/assets/ba_data/python/bascenev1lib/game/musicalflags.py
+
+SEBASTIAN2059:
+  Holds Copyright in:
+    src/assets/ba_data/python/bascenev1lib/game/runningbombs.py
+
+  Ways to contact:
+    sebastian2059 on Discord
+
+SoK:
+  Holds Copyright in:
+    "overclockedLogo", "powerup0g", "powerupBigBombs", "powerupBot",
+    "powerupCoins", "powerupDev", "powerupIcepactBombs", "powerupImpulseBombs",
+    "powerupInv", "powerupLightBombs", "powerupPap", "powerupPortal",
+    "powerupPowerups", "powerupUno", and "powerupWonderBombs" .dds, .ktx, and
+    .png files found in src/assets/ba_data/textures
+
+  Ways to contact:
+    sok05 on Discord

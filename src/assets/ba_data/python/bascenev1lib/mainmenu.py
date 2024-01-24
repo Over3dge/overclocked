@@ -1,0 +1,1008 @@
+# Released under AGPL-3.0-or-later. See LICENSE for details.
+#
+# This file incorporates work covered by the following permission notice:
+#   Released under the MIT License. See LICENSE for details.
+#
+"""Session and Activity for displaying the main menu bg."""
+# pylint: disable=too-many-lines
+
+from __future__ import annotations
+
+import time
+import random
+import weakref
+from typing import TYPE_CHECKING
+
+import bascenev1 as bs
+import bauiv1 as bui
+from bascenev1lib.maps import ThePad
+from bascenev1lib.actor.themes import DarkestHourTheme, THEME_DICT
+
+if TYPE_CHECKING:
+    from typing import Any
+
+
+class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
+    """Activity showing the rotating main menu bg stuff."""
+
+    _stdassets = bs.Dependency(bs.AssetPackage, 'stdassets@1')
+
+    def __init__(self, settings: dict):
+        super().__init__(settings)
+        self._logo_node: bs.Node | None = None
+        self._custom_logo_tex_name: str | None = None
+        self._word_actors: list[bs.Actor] = []
+        self.my_name: bs.NodeActor | None = None
+        self._host_is_navigating_text: bs.NodeActor | None = None
+        self.version: bs.NodeActor | None = None
+        self.beta_info: bs.NodeActor | None = None
+        self.beta_info_2: bs.NodeActor | None = None
+        self.bottom: bs.NodeActor | None = None
+        self.vr_bottom_fill: bs.NodeActor | None = None
+        self.vr_top_fill: bs.NodeActor | None = None
+        self.terrain: bs.NodeActor | None = None
+        self.trees: bs.NodeActor | None = None
+        self.bgterrain: bs.NodeActor | None = None
+        self._ts = 0.86
+        self._language: str | None = None
+        self._update_timer: bs.Timer | None = None
+        self._news: NewsDisplay | None = None
+        self.map: bs.Map | None = None
+        ThePad.preload()
+
+    def on_transition_in(self) -> None:
+        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-statements
+        # pylint: disable=too-many-branches
+        super().on_transition_in()
+        app = bs.app
+        env = app.env
+        assert app.classic is not None
+
+        plus = bui.app.plus
+        assert plus is not None
+
+        # FIXME: We shouldn't be doing things conditionally based on whether
+        #  the host is VR mode or not (clients may differ in that regard).
+        #  Any differences need to happen at the engine level so everyone
+        #  sees things in their own optimal way.
+        vr_mode = bs.app.env.vr
+
+        if not bs.app.ui_v1.use_toolbars:
+            color = (1.0, 1.0, 1.0, 1.0) if vr_mode else (0.5, 0.6, 0.5, 0.6)
+
+            # FIXME: Need a node attr for vr-specific-scale.
+            scale = (
+                0.9
+                if (app.ui_v1.uiscale is bs.UIScale.SMALL or vr_mode)
+                else 0.7
+            )
+            self.my_name = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'v_attach': 'bottom',
+                        'h_align': 'center',
+                        'color': color,
+                        'flatness': 1.0,
+                        'shadow': 1.0 if vr_mode else 0.5,
+                        'scale': scale,
+                        'position': (0, 25),
+                        'vr_depth': -10,
+                        'text': '\xa9 2022-2024 Era0S\n'
+                        '\xa9 2011-2023 Eric Froemling',
+                    },
+                )
+            )
+
+        # Throw up some text that only clients can see so they know that the
+        # host is navigating menus while they're just staring at an
+        # empty-ish screen.
+        tval = bs.Lstr(
+            resource='hostIsNavigatingMenusText',
+            subs=[('${HOST}', plus.get_v1_account_display_string())],
+        )
+        self._host_is_navigating_text = bs.NodeActor(
+            bs.newnode(
+                'text',
+                attrs={
+                    'text': tval,
+                    'client_only': True,
+                    'position': (0, -200),
+                    'flatness': 1.0,
+                    'h_align': 'center',
+                },
+            )
+        )
+        if not app.classic.main_menu_did_initial_transition and hasattr(
+            self, 'my_name'
+        ):
+            assert self.my_name is not None
+            assert self.my_name.node
+            bs.animate(self.my_name.node, 'opacity', {2.3: 0, 3.0: 1.0})
+
+        # FIXME: We shouldn't be doing things conditionally based on whether
+        #  the host is vr mode or not (clients may not be or vice versa).
+        #  Any differences need to happen at the engine level so everyone sees
+        #  things in their own optimal way.
+        vr_mode = app.env.vr
+        uiscale = app.ui_v1.uiscale
+
+        # In cases where we're doing lots of dev work lets always show the
+        # build number.
+        force_show_build_number = False
+
+        if not bs.app.ui_v1.use_toolbars:
+            if env.debug or env.test or force_show_build_number:
+                if env.debug:
+                    text = bs.Lstr(
+                        value='${V} (${B}) (${D})',
+                        subs=[
+                            ('${V}', app.env.version),
+                            ('${B}', str(app.env.build_number)),
+                            ('${D}', bs.Lstr(resource='debugText')),
+                        ],
+                    )
+                else:
+                    text = bs.Lstr(
+                        value='${V} (${B})',
+                        subs=[
+                            ('${V}', app.env.version),
+                            ('${B}', str(app.env.build_number)),
+                        ],
+                    )
+            else:
+                text = bs.Lstr(value='${V}', subs=[('${V}', app.env.version)])
+            scale = 0.9 if (uiscale is bs.UIScale.SMALL or vr_mode) else 0.7
+            color = (1, 1, 1, 1) if vr_mode else (0.5, 0.6, 0.5, 0.7)
+            self.version = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'v_attach': 'bottom',
+                        'h_attach': 'right',
+                        'h_align': 'right',
+                        'flatness': 1.0,
+                        'vr_depth': -10,
+                        'shadow': 1.0 if vr_mode else 0.5,
+                        'color': color,
+                        'scale': scale,
+                        'position': (-260, 10) if vr_mode else (-10, 10),
+                        'text': text,
+                    },
+                )
+            )
+            if not app.classic.main_menu_did_initial_transition:
+                assert self.version.node
+                bs.animate(self.version.node, 'opacity', {2.3: 0, 3.0: 1.0})
+
+        # Throw in test build info.
+        self.beta_info = self.beta_info_2 = None
+        if env.test and not (env.demo or env.arcade):
+            self.beta_info = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'v_attach': 'bottom',
+                        'v_align': 'bottom',
+                        'h_attach': 'left',
+                        'h_align': 'left',
+                        'color': (1, 1, 1, 1),
+                        'shadow': 0.5,
+                        'flatness': 0.5,
+                        'scale': 0.5,
+                        'vr_depth': -60,
+                        'text': bs.Lstr(resource='testBuildText'),
+                    },
+                )
+            )
+            if not app.classic.main_menu_did_initial_transition:
+                assert self.beta_info.node
+                bs.animate(self.beta_info.node, 'opacity', {1.3: 0, 1.8: 1.0})
+
+        trees_mesh = bs.getmesh('trees')
+        trees_texture = bs.gettexture('treesColor')
+
+        gnode = self.globalsnode
+        gnode.camera_mode = 'rotate'
+
+        self.map = ThePad()
+        self.trees = bs.NodeActor(
+            bs.newnode(
+                'terrain',
+                attrs={
+                    'mesh': trees_mesh,
+                    'lighting': False,
+                    'reflection': 'char',
+                    'reflection_scale': [0.1],
+                    'color_texture': trees_texture,
+                },
+            )
+        )
+
+        DarkestHourTheme()
+
+        self._update_timer = bs.Timer(1, self._pre_update)
+
+        # Hopefully this won't hitch but lets space these out anyway.
+        bui.add_clean_frame_callback(bs.WeakCall(self._start_preloads))
+
+        random.seed()
+
+        if not (env.demo or env.arcade) and not app.ui_v1.use_toolbars:
+            self._news = NewsDisplay(self)
+
+        # Bring up the last place we were, or start at the main menu otherwise.
+        with bs.ContextRef.empty():
+            from bauiv1lib import specialoffer
+
+            assert bs.app.classic is not None
+            if bui.app.env.headless:
+                # UI stuff fails now in headless builds; avoid it.
+                pass
+            elif bool(False):
+                uicontroller = bs.app.ui_v1.controller
+                assert uicontroller is not None
+                uicontroller.show_main_menu()
+            else:
+                main_menu_location = bs.app.ui_v1.get_main_menu_location()
+
+                # When coming back from a kiosk-mode game, jump to
+                # the kiosk start screen.
+                if env.demo or env.arcade:
+                    # pylint: disable=cyclic-import
+                    from bauiv1lib.kiosk import KioskWindow
+
+                    bs.app.ui_v1.set_main_menu_window(
+                        KioskWindow().get_root_widget(),
+                        from_window=False,  # Disable check here.
+                    )
+                # ..or in normal cases go back to the main menu
+                else:
+                    if main_menu_location == 'Gather':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.gather import GatherWindow
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            GatherWindow(transition=None).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    elif main_menu_location == 'Watch':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.watch import WatchWindow
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            WatchWindow(transition=None).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    elif main_menu_location == 'Team Game Select':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.playlist.browser import (
+                            PlaylistBrowserWindow,
+                        )
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            PlaylistBrowserWindow(
+                                sessiontype=bs.DualTeamSession, transition=None
+                            ).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    elif main_menu_location == 'Free-for-All Game Select':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.playlist.browser import (
+                            PlaylistBrowserWindow,
+                        )
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            PlaylistBrowserWindow(
+                                sessiontype=bs.FreeForAllSession,
+                                transition=None,
+                            ).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    elif main_menu_location == 'Coop Select':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.coop.browser import CoopBrowserWindow
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            CoopBrowserWindow(
+                                transition=None
+                            ).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    elif main_menu_location == 'Benchmarks & Stress Tests':
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.debug import DebugWindow
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            DebugWindow(transition=None).get_root_widget(),
+                            from_window=False,  # Disable check here.
+                        )
+                    else:
+                        # pylint: disable=cyclic-import
+                        from bauiv1lib.mainmenu import MainMenuWindow
+
+                        bs.app.ui_v1.set_main_menu_window(
+                            MainMenuWindow(transition=None).get_root_widget(),
+                            from_window=None,
+                        )
+
+                # attempt to show any pending offers immediately.
+                # If that doesn't work, try again in a few seconds
+                # (we may not have heard back from the server)
+                # ..if that doesn't work they'll just have to wait
+                # until the next opportunity.
+                if not specialoffer.show_offer():
+
+                    def try_again() -> None:
+                        if not specialoffer.show_offer():
+                            # Try one last time..
+                            bui.apptimer(2.0, specialoffer.show_offer)
+
+                    bui.apptimer(2.0, try_again)
+        app.classic.main_menu_did_initial_transition = True
+
+    def _pre_update(self) -> None:
+        random.choice(list(THEME_DICT.values()))(
+            True,
+            self.map.get_def_bound_box('map_bounds'),
+        )
+
+        self._update_timer = bs.Timer(1.0, self._update, repeat=True)
+        self._update()
+
+    def _update(self) -> None:
+        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-statements
+        app = bs.app
+        env = app.env
+        assert app.classic is not None
+
+        # Update logo in case it changes.
+        if self._logo_node:
+            custom_texture = self._get_custom_logo_tex_name()
+            if custom_texture != self._custom_logo_tex_name:
+                self._custom_logo_tex_name = custom_texture
+                self._logo_node.texture = bs.gettexture(
+                    custom_texture
+                    if custom_texture is not None
+                    else 'overclockedLogo'
+                )
+
+        # If language has changed, recreate our logo text/graphics.
+        lang = app.lang.language
+        if lang != self._language:
+            self._language = lang
+            y = 20
+            base_scale = 1.1
+            self._word_actors = []
+            base_delay = 1.0
+            delay = base_delay
+            delay_inc = 0.02
+
+            # Come on faster after the first time.
+            if app.classic.main_menu_did_initial_transition:
+                base_delay = 0.0
+                delay = base_delay
+                delay_inc = 0.02
+
+            base_x = -170
+            x = base_x - 20
+            spacing = 55 * base_scale
+            y_extra = 0 if (env.demo or env.arcade) else 0
+            xv1 = x
+            delay1 = delay
+            for shadow in (True, False):
+                x = xv1
+                delay = delay1
+                self._make_word(
+                    'B',
+                    x - 50,
+                    y - 23 + 0.8 * y_extra,
+                    scale=1.3 * base_scale,
+                    delay=delay,
+                    vr_depth_offset=3,
+                    shadow=shadow,
+                )
+                self._make_word(
+                    'O V E R C L O C K E D',
+                    x - 200,
+                    y - 100,
+                    scale=0.5 * base_scale,
+                    delay=delay + 0.1,
+                    vr_depth_offset=14,
+                    shadow=shadow,
+                )
+                x += spacing
+                delay += delay_inc
+                self._make_word(
+                    'm',
+                    x,
+                    y + y_extra,
+                    delay=delay,
+                    scale=base_scale,
+                    shadow=shadow,
+                )
+                x += spacing * 1.25
+                delay += delay_inc
+                self._make_word(
+                    'b',
+                    x,
+                    y + y_extra - 10,
+                    delay=delay,
+                    scale=1.1 * base_scale,
+                    vr_depth_offset=5,
+                    shadow=shadow,
+                )
+                x += spacing * 0.85
+                delay += delay_inc
+                self._make_word(
+                    'S',
+                    x,
+                    y - 25 + 0.8 * y_extra,
+                    scale=1.35 * base_scale,
+                    delay=delay,
+                    vr_depth_offset=14,
+                    shadow=shadow,
+                )
+                x += spacing
+                delay += delay_inc
+                self._make_word(
+                    'q',
+                    x,
+                    y + y_extra,
+                    delay=delay,
+                    scale=base_scale,
+                    shadow=shadow,
+                )
+                x += spacing * 0.9
+                delay += delay_inc
+                self._make_word(
+                    'u',
+                    x,
+                    y + y_extra,
+                    delay=delay,
+                    scale=base_scale,
+                    vr_depth_offset=7,
+                    shadow=shadow,
+                )
+                x += spacing * 0.9
+                delay += delay_inc
+                self._make_word(
+                    'a',
+                    x,
+                    y + y_extra,
+                    delay=delay,
+                    scale=base_scale,
+                    shadow=shadow,
+                )
+                x += spacing * 0.64
+                delay += delay_inc
+                self._make_word(
+                    'd',
+                    x,
+                    y + y_extra - 10,
+                    delay=delay,
+                    scale=1.1 * base_scale,
+                    vr_depth_offset=6,
+                    shadow=shadow,
+                )
+                x += spacing * 0.9
+                delay += delay_inc
+                self._make_word(
+                    ':',
+                    x,
+                    y + y_extra - 10,
+                    delay=delay,
+                    scale=1.1 * base_scale,
+                    vr_depth_offset=6,
+                    shadow=shadow,
+                )
+            self._make_logo(
+                base_x - 28,
+                125 + y + 1.2 * y_extra,
+                0.32 * base_scale,
+                delay=base_delay,
+            )
+
+    def _make_word(
+        self,
+        word: str,
+        x: float,
+        y: float,
+        scale: float = 1.0,
+        delay: float = 0.0,
+        vr_depth_offset: float = 0.0,
+        shadow: bool = False,
+    ) -> None:
+        # pylint: disable=too-many-branches
+        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-statements
+        if shadow:
+            word_obj = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'position': (x, y),
+                        'big': True,
+                        'color': (0.0, 0.0, 0.2, 0.08),
+                        'tilt_translate': 0.09,
+                        'opacity_scales_shadow': False,
+                        'shadow': 0.2,
+                        'vr_depth': -130,
+                        'v_align': 'center',
+                        'project_scale': 0.97 * scale,
+                        'scale': 1.0,
+                        'text': word,
+                    },
+                )
+            )
+            self._word_actors.append(word_obj)
+        else:
+            word_obj = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'position': (x, y),
+                        'big': True,
+                        'color': (1.2, 1.15, 1.15, 1.0),
+                        'tilt_translate': 0.11,
+                        'shadow': 0.2,
+                        'vr_depth': -40 + vr_depth_offset,
+                        'v_align': 'center',
+                        'project_scale': scale,
+                        'scale': 1.0,
+                        'text': word,
+                    },
+                )
+            )
+            self._word_actors.append(word_obj)
+
+        # Add a bit of stop-motion-y jitter to the logo
+        # (unless we're in VR mode in which case its best to
+        # leave things still).
+        if not bs.app.env.vr:
+            cmb: bs.Node | None
+            cmb2: bs.Node | None
+            if not shadow:
+                cmb = bs.newnode(
+                    'combine', owner=word_obj.node, attrs={'size': 2}
+                )
+            else:
+                cmb = None
+            if shadow:
+                cmb2 = bs.newnode(
+                    'combine', owner=word_obj.node, attrs={'size': 2}
+                )
+            else:
+                cmb2 = None
+            if not shadow:
+                assert cmb and word_obj.node
+                cmb.connectattr('output', word_obj.node, 'position')
+            if shadow:
+                assert cmb2 and word_obj.node
+                cmb2.connectattr('output', word_obj.node, 'position')
+            keys = {}
+            keys2 = {}
+            time_v = 0.0
+            for _i in range(10):
+                val = x + (random.random() - 0.5) * 0.8
+                val2 = x + (random.random() - 0.5) * 0.8
+                keys[time_v * self._ts] = val
+                keys2[time_v * self._ts] = val2 + 5
+                time_v += random.random() * 0.1
+            if cmb is not None:
+                bs.animate(cmb, 'input0', keys, loop=True)
+            if cmb2 is not None:
+                bs.animate(cmb2, 'input0', keys2, loop=True)
+            keys = {}
+            keys2 = {}
+            time_v = 0
+            for _i in range(10):
+                val = y + (random.random() - 0.5) * 0.8
+                val2 = y + (random.random() - 0.5) * 0.8
+                keys[time_v * self._ts] = val
+                keys2[time_v * self._ts] = val2 - 9
+                time_v += random.random() * 0.1
+            if cmb is not None:
+                bs.animate(cmb, 'input1', keys, loop=True)
+            if cmb2 is not None:
+                bs.animate(cmb2, 'input1', keys2, loop=True)
+
+        if not shadow:
+            assert word_obj.node
+            bs.animate(
+                word_obj.node,
+                'project_scale',
+                {delay: 0.0, delay + 0.1: scale * 1.1, delay + 0.2: scale},
+            )
+        else:
+            assert word_obj.node
+            bs.animate(
+                word_obj.node,
+                'project_scale',
+                {delay: 0.0, delay + 0.1: scale * 1.1, delay + 0.2: scale},
+            )
+
+    def _get_custom_logo_tex_name(self) -> str | None:
+        plus = bui.app.plus
+        assert plus is not None
+
+        if plus.get_v1_account_misc_read_val('easter', False):
+            return 'logoEaster'
+        return None
+
+    # Pop the logo and menu in.
+    def _make_logo(
+        self,
+        x: float,
+        y: float,
+        scale: float,
+        delay: float,
+        custom_texture: str | None = None,
+        jitter_scale: float = 1.0,
+        rotate: float = 0.0,
+        vr_depth_offset: float = 0.0,
+    ) -> None:
+        # pylint: disable=too-many-locals
+        # Temp easter goodness.
+        if custom_texture is None:
+            custom_texture = self._get_custom_logo_tex_name()
+        self._custom_logo_tex_name = custom_texture
+        ltex = bs.gettexture(
+            custom_texture if custom_texture is not None else 'overclockedLogo'
+        )
+        logo = bs.NodeActor(
+            bs.newnode(
+                'image',
+                attrs={
+                    'texture': ltex,
+                    'vr_depth': -10 + vr_depth_offset,
+                    'rotate': rotate,
+                    'attach': 'center',
+                    'tilt_translate': 0.21,
+                    'absolute_scale': True,
+                },
+            )
+        )
+        self._logo_node = logo.node
+        self._word_actors.append(logo)
+
+        # Add a bit of stop-motion-y jitter to the logo
+        # (unless we're in VR mode in which case its best to
+        # leave things still).
+        assert logo.node
+        if not bs.app.env.vr:
+            cmb = bs.newnode('combine', owner=logo.node, attrs={'size': 2})
+            cmb.connectattr('output', logo.node, 'position')
+            keys = {}
+            time_v = 0.0
+
+            # Gen some random keys for that stop-motion-y look
+            for _i in range(10):
+                keys[time_v] = x + (random.random() - 0.5) * 0.7 * jitter_scale
+                time_v += random.random() * 0.1
+            bs.animate(cmb, 'input0', keys, loop=True)
+            keys = {}
+            time_v = 0.0
+            for _i in range(10):
+                keys[time_v * self._ts] = (
+                    y + (random.random() - 0.5) * 0.7 * jitter_scale
+                )
+                time_v += random.random() * 0.1
+            bs.animate(cmb, 'input1', keys, loop=True)
+        else:
+            logo.node.position = (x, y)
+
+        cmb = bs.newnode('combine', owner=logo.node, attrs={'size': 2})
+
+        keys = {
+            delay: 0.0,
+            delay + 0.1: 700.0 * scale,
+            delay + 0.2: 600.0 * scale,
+        }
+        bs.animate(cmb, 'input0', keys)
+        bs.animate(cmb, 'input1', keys)
+        cmb.connectattr('output', logo.node, 'scale')
+
+    def _start_preloads(self) -> None:
+        # FIXME: The func that calls us back doesn't save/restore state
+        #  or check for a dead activity so we have to do that ourself.
+        if self.expired:
+            return
+        with self.context:
+            _preload1()
+
+        def _start_menu_music() -> None:
+            assert bs.app.classic is not None
+            bs.setmusic(bs.MusicType.MENU)
+
+        bui.apptimer(0.5, _start_menu_music)
+
+
+class NewsDisplay:
+    """Wrangles news display."""
+
+    def __init__(self, activity: bs.Activity):
+        self._valid = True
+        self._message_duration = 10.0
+        self._message_spacing = 2.0
+        self._text: bs.NodeActor | None = None
+        self._activity = weakref.ref(activity)
+        self._phrases: list[str] = []
+        self._used_phrases: list[str] = []
+        self._phrase_change_timer: bs.Timer | None = None
+
+        # If we're signed in, fetch news immediately.
+        # Otherwise wait until we are signed in.
+        self._fetch_timer: bs.Timer | None = bs.Timer(
+            1.0, bs.WeakCall(self._try_fetching_news), repeat=True
+        )
+        self._try_fetching_news()
+
+    # We now want to wait until we're signed in before fetching news.
+    def _try_fetching_news(self) -> None:
+        plus = bui.app.plus
+        assert plus is not None
+
+        if plus.get_v1_account_state() == 'signed_in':
+            self._fetch_news()
+            self._fetch_timer = None
+
+    def _fetch_news(self) -> None:
+        plus = bui.app.plus
+        assert plus is not None
+
+        assert bs.app.classic is not None
+        bs.app.classic.main_menu_last_news_fetch_time = time.time()
+
+        # UPDATE - We now just pull news from MRVs.
+        news = plus.get_v1_account_misc_read_val('n', None)
+        if news is not None:
+            self._got_news(news)
+
+    def _change_phrase(self) -> None:
+        from bascenev1lib.actor.text import Text
+
+        app = bs.app
+        assert app.classic is not None
+
+        # If our news is way out of date, lets re-request it;
+        # otherwise, rotate our phrase.
+        assert app.classic.main_menu_last_news_fetch_time is not None
+        if time.time() - app.classic.main_menu_last_news_fetch_time > 600.0:
+            self._fetch_news()
+            self._text = None
+        else:
+            if self._text is not None:
+                if not self._phrases:
+                    for phr in self._used_phrases:
+                        self._phrases.insert(0, phr)
+                val = self._phrases.pop()
+                if val == '__ACH__':
+                    vrmode = app.env.vr
+                    Text(
+                        bs.Lstr(resource='nextAchievementsText'),
+                        color=((1, 1, 1, 1) if vrmode else (0.95, 0.9, 1, 0.4)),
+                        host_only=True,
+                        maxwidth=200,
+                        position=(-300, -35),
+                        h_align=Text.HAlign.RIGHT,
+                        transition=Text.Transition.FADE_IN,
+                        scale=0.9 if vrmode else 0.7,
+                        flatness=1.0 if vrmode else 0.6,
+                        shadow=1.0 if vrmode else 0.5,
+                        h_attach=Text.HAttach.CENTER,
+                        v_attach=Text.VAttach.TOP,
+                        transition_delay=1.0,
+                        transition_out_delay=self._message_duration,
+                    ).autoretain()
+                    achs = [
+                        a
+                        for a in app.classic.ach.achievements
+                        if not a.complete
+                    ]
+                    if achs:
+                        ach = achs.pop(random.randrange(min(4, len(achs))))
+                        ach.create_display(
+                            -180,
+                            -35,
+                            1.0,
+                            outdelay=self._message_duration,
+                            style='news',
+                        )
+                    if achs:
+                        ach = achs.pop(random.randrange(min(8, len(achs))))
+                        ach.create_display(
+                            180,
+                            -35,
+                            1.25,
+                            outdelay=self._message_duration,
+                            style='news',
+                        )
+                else:
+                    spc = self._message_spacing
+                    keys = {
+                        spc: 0.0,
+                        spc + 1.0: 1.0,
+                        spc + self._message_duration - 1.0: 1.0,
+                        spc + self._message_duration: 0.0,
+                    }
+                    assert self._text.node
+                    bs.animate(self._text.node, 'opacity', keys)
+                    # {k: v
+                    #  for k, v in list(keys.items())})
+                    self._text.node.text = val
+
+    def _got_news(self, news: str) -> None:
+        # Run this stuff in the context of our activity since we
+        # need to make nodes and stuff.. should fix the serverget
+        # call so it.
+        activity = self._activity()
+        if activity is None or activity.expired:
+            return
+        with activity.context:
+            self._phrases.clear()
+
+            # Show upcoming achievements in non-vr versions
+            # (currently too hard to read in vr).
+            self._used_phrases = (['__ACH__'] if not bs.app.env.vr else []) + [
+                s for s in news.split('<br>\n') if s != ''
+            ]
+            self._phrase_change_timer = bs.Timer(
+                (self._message_duration + self._message_spacing),
+                bs.WeakCall(self._change_phrase),
+                repeat=True,
+            )
+
+            assert bs.app.classic is not None
+            scl = (
+                1.2
+                if (bs.app.ui_v1.uiscale is bs.UIScale.SMALL or bs.app.env.vr)
+                else 0.8
+            )
+
+            color2 = (1, 1, 1, 1) if bs.app.env.vr else (0.7, 0.65, 0.75, 1.0)
+            shadow = 1.0 if bs.app.env.vr else 0.4
+            self._text = bs.NodeActor(
+                bs.newnode(
+                    'text',
+                    attrs={
+                        'v_attach': 'top',
+                        'h_attach': 'center',
+                        'h_align': 'center',
+                        'vr_depth': -20,
+                        'shadow': shadow,
+                        'flatness': 0.8,
+                        'v_align': 'top',
+                        'color': color2,
+                        'scale': scl,
+                        'maxwidth': 900.0 / scl,
+                        'position': (0, -10),
+                    },
+                )
+            )
+            self._change_phrase()
+
+
+def _preload1() -> None:
+    """Pre-load some assets a second or two into the main menu.
+
+    Helps avoid hitches later on.
+    """
+    for mname in [
+        'plasticEyesTransparent',
+        'playerLineup1Transparent',
+        'playerLineup2Transparent',
+        'playerLineup3Transparent',
+        'playerLineup4Transparent',
+        'angryComputerTransparent',
+        'scrollWidgetShort',
+        'windowBGBlotch',
+    ]:
+        bs.getmesh(mname)
+    for tname in ['playerLineup', 'lock']:
+        bs.gettexture(tname)
+    for tex in [
+        'iconRunaround',
+        'iconOnslaught',
+        'medalComplete',
+        'medalBronze',
+        'medalSilver',
+        'medalGold',
+        'characterIconMask',
+    ]:
+        bs.gettexture(tex)
+    bs.gettexture('bg')
+    from bascenev1lib.actor.powerupbox import PowerupBoxFactory
+
+    PowerupBoxFactory.get()
+    bui.apptimer(0.1, _preload2)
+
+
+def _preload2() -> None:
+    # FIXME: Could integrate these loads with the classes that use them
+    #  so they don't have to redundantly call the load
+    #  (even if the actual result is cached).
+    for mname in ['powerup', 'powerupSimple']:
+        bs.getmesh(mname)
+    for tname in [
+        'powerupBomb',
+        'powerupSpeed',
+        'powerupPunch',
+        'powerupIceBombs',
+        'powerupStickyBombs',
+        'powerupShield',
+        'powerupImpactBombs',
+        'powerupHealth',
+    ]:
+        bs.gettexture(tname)
+    for sname in [
+        'powerup01',
+        'boxDrop',
+        'boxingBell',
+        'scoreHit01',
+        'scoreHit02',
+        'dripity',
+        'spawn',
+        'gong',
+    ]:
+        bs.getsound(sname)
+    from bascenev1lib.actor.bomb import BombFactory
+
+    BombFactory.get()
+    bui.apptimer(0.1, _preload3)
+
+
+def _preload3() -> None:
+    from bascenev1lib.actor.spazfactory import SpazFactory
+
+    for mname in ['bomb', 'bombSticky', 'impactBomb']:
+        bs.getmesh(mname)
+    for tname in [
+        'bombColor',
+        'bombColorIce',
+        'bombStickyColor',
+        'impactBombColor',
+        'impactBombColorLit',
+    ]:
+        bs.gettexture(tname)
+    for sname in ['freeze', 'fuse01', 'activateBeep', 'warnBeep']:
+        bs.getsound(sname)
+    SpazFactory.get()
+    bui.apptimer(0.2, _preload4)
+
+
+def _preload4() -> None:
+    for tname in ['bar', 'meter', 'null', 'flagColor', 'achievementOutline']:
+        bs.gettexture(tname)
+    for mname in ['frameInset', 'meterTransparent', 'achievementOutline']:
+        bs.getmesh(mname)
+    for sname in ['metalHit', 'metalSkid', 'refWhistle', 'achievement']:
+        bs.getsound(sname)
+    from bascenev1lib.actor.flag import FlagFactory
+
+    FlagFactory.get()
+
+
+class MainMenuSession(bs.Session):
+    """Session that runs the main menu environment."""
+
+    def __init__(self) -> None:
+        # Gather dependencies we'll need (just our activity).
+        self._activity_deps = bs.DependencySet(bs.Dependency(MainMenuActivity))
+
+        super().__init__([self._activity_deps])
+        self._locked = False
+        self.setactivity(bs.newactivity(MainMenuActivity))
+
+    def on_activity_end(self, activity: bs.Activity, results: Any) -> None:
+        if self._locked:
+            bui.unlock_all_input()
+
+        # Any ending activity leads us into the main menu one.
+        self.setactivity(bs.newactivity(MainMenuActivity))
+
+    def on_player_request(self, player: bs.SessionPlayer) -> bool:
+        # Reject all player requests.
+        return False
