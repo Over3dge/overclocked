@@ -1,3 +1,5 @@
+## This repository has been moved to [Codeberg](https://codeberg.org/3ra/overclocked)
+
 <img
 src="https://github.com/Over3dge/overclocked/blob/master/logo.png"
 height="200" alt="logo">
